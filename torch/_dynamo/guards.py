@@ -788,21 +788,41 @@ def get_verbose_code_part(code_part: str, guard: Optional[Guard]) -> str:
     extra = ""
     if guard is not None:
         if guard.user_stack:
+            # Collect all non-uninteresting frames to show full stack trace
+            stack_frames = []
             for fs in reversed(guard.user_stack):
                 if fs.filename not in uninteresting_files():
-                    extra = f"  # {format_frame(fs, line=True)}"
-                    if len(extra) > 1024:
+                    frame_str = format_frame(fs, line=True)
+                    if len(frame_str) > 1024:
                         # For fx graphs, the line can be very long in case of
                         # torch.stack ops, where many inputs are set to None
                         # after the operation.  This increases the size of the
                         # guards log file.  In such cases, do not print the line
                         # contents.
-                        extra = f"  # {format_frame(fs)}"
-                    break
+                        frame_str = format_frame(fs)
+                    stack_frames.append(frame_str)
+
+            if stack_frames:
+                # Format full stack trace with proper indentation
+                if len(stack_frames) == 1:
+                    extra = f"  # {stack_frames[0]}"
+                else:
+                    extra = "\n  # Full stack trace:\n" + "\n".join(
+                        f"  #   {i}: {frame}"
+                            for i, frame in enumerate(stack_frames)
+                    )
         elif guard.stack:
             summary = guard.stack.summary()
             if len(summary) > 0:
-                extra = f"  # {format_frame(summary[-1])}"
+                # Show full stack trace for CapturedTraceback as well
+                stack_frames = [format_frame(fs) for fs in summary]
+                if len(stack_frames) == 1:
+                    extra = f"  # {format_frame(summary[-1])}"
+                else:
+                    extra = "\n  # Full stack trace:\n" + "\n".join(
+                        f"  #   {i}: {frame}"
+                            for i, frame in enumerate(stack_frames)
+                    )
             else:
                 extra = "  # <unknown>"
     return f"{code_part:<60}{extra}"
@@ -4397,6 +4417,17 @@ def get_guard_fail_reason_helper(
             guard_manager, scope
         )
     else:
+        # Build a mapping from code parts to guards for stack trace lookup
+        code_to_guard: dict[str, Guard] = {}
+        if is_recompiles_verbose_enabled() and hasattr(
+            guard_manager, "guards_with_stack"
+        ):
+            for guard in guard_manager.guards_with_stack:
+                if guard.code_list:
+                    for code_part in guard.code_list:
+                        # Store the guard for this code part
+                        code_to_guard[code_part] = guard
+
         for part in verbose_code_parts:
             global_scope = dict(guard_manager.global_scope)
             global_scope["__compile_source__"] = part
@@ -4415,6 +4446,7 @@ def get_guard_fail_reason_helper(
                 fail_reason = part
             if isinstance(fail_reason, str):
                 reasons.append(fail_reason)
+
                 if not is_recompiles_verbose_enabled():
                     break
 
