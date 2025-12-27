@@ -198,11 +198,11 @@ class SideEffects:
         assert ref is not None
         return self.__class__(
             output_graph=ref,
-            id_to_variable=dict(self.id_to_variable),
+            id_to_variable=self.id_to_variable.copy(),
             store_attr_mutations={
-                k: dict(v) for k, v in self.store_attr_mutations.items()
+                k: v.copy() for k, v in self.store_attr_mutations.items()
             },
-            keepalive=list(self.keepalive),
+            keepalive=self.keepalive.copy(),
             save_for_backward=self.save_for_backward,
             tensor_hooks=self.tensor_hooks,
         )

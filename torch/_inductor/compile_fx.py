@@ -1330,7 +1330,8 @@ class _InProcessFxCompile(FxCompile):
 
                 # We're printing the graph to be used as a cache key - so a
                 # printer which is a little less readable but faster is
-                # appropriate.
+                # appropriate. This string is stored in CompiledFxGraph for
+                # later trace_structured calls (which use lazy lambdas).
                 inductor_post_grad_graph_str = gm.print_readable(
                     print_output=False,
                     include_stride=True,
@@ -1489,10 +1490,11 @@ class _InProcessFxCompile(FxCompile):
                         if graph.aot_mode and graph.fx_wrapper:
                             assert not graph.cpp_wrapper
                             compiled_fn = graph.codegen()[0].gm  # type: ignore[attr-defined]
-                            output_code_log.debug(
-                                "Output graph module: \n%s",
-                                compiled_fn.print_readable(print_output=False),
-                            )
+                            if output_code_log.isEnabledFor(logging.DEBUG):
+                                output_code_log.debug(
+                                    "Output graph module: \n%s",
+                                    compiled_fn.print_readable(print_output=False),
+                                )
 
                         elif graph.aot_mode:
                             from .codecache import AotCodeCompiler

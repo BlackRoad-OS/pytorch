@@ -2372,7 +2372,7 @@ def _fast_expand(expr: _SympyT) -> _SympyT:
     return expr
 
 
-@lru_cache(256)
+@lru_cache(None)
 def safe_expand(r: _SympyT) -> _SympyT:
     """
     Expand the given symbolic expression by recursively rewriting product of
