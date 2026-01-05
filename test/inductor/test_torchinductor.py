@@ -4785,7 +4785,6 @@ class CommonTemplate:
             (torch.randn([4, 4, 4]),),
         )
 
-    @skipIfXpu(msg="Incorrect reference on XPU, see issue #165392")
     def test_conv1d_with_permute(self):
         # fix https://github.com/pytorch/pytorch/issues/159462
         class ConvModel(nn.Module):
@@ -12170,7 +12169,6 @@ def forward(self, arg0_1: "Sym(s77)", arg1_1: "Sym(s27)", arg2_1: "Sym(s53)", ar
         )
 
     @xfail_if_mps_unimplemented
-    @expectedFailureXPU
     @unittest.skipIf(
         not PLATFORM_SUPPORTS_MEM_EFF_ATTENTION, "Some archs don't support mem eff SDPA"
     )
