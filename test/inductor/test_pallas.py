@@ -1017,6 +1017,450 @@ class PallasTestsMixin:
         expected = fn(a, b)
         self.assertEqual(result, expected)
 
+    def test_residual_connection(self):
+        """Test residual connection pattern: x + relu(linear(x)).
+
+        This test verifies that view/reshape operations fused into kernels work
+        correctly when input buffers have different shapes (e.g., matmul output
+        shape (8, 8) vs input shape (2, 4, 8) that need element-wise addition).
+        """
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Residual connection not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class ResidualBlock(torch.nn.Module):
+            def __init__(self, dim):
+                super().__init__()
+                self.linear = torch.nn.Linear(dim, dim)
+
+            def forward(self, x):
+                return x + torch.relu(self.linear(x))
+
+        model = ResidualBlock(8)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        x = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected = model(x)
+        compiled_model = self._compile(model)
+        result = compiled_model(x)
+        self.assertEqual(result, expected)
+
+    def test_embedding_with_positional(self):
+        """Test token + positional embeddings pattern (GPT-style).
+
+        This test verifies that embedding lookups with different indexing patterns
+        work correctly when fused together. Token embeddings use input indices while
+        positional embeddings use torch.arange-generated indices. The resulting tensors
+        (batch, seq, dim) and (seq, dim) must broadcast correctly.
+        """
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Embedding with positional not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class EmbeddingWithPositions(torch.nn.Module):
+            def __init__(self, vocab_size, max_seq_len, dim):
+                super().__init__()
+                self.tok_emb = torch.nn.Embedding(vocab_size, dim)
+                self.pos_emb = torch.nn.Embedding(max_seq_len, dim)
+
+            def forward(self, tokens):
+                batch, seq_len = tokens.shape
+                tok = self.tok_emb(tokens)  # (batch, seq_len, dim)
+                pos_indices = torch.arange(seq_len, device=tokens.device)
+                pos = self.pos_emb(pos_indices)  # (seq_len, dim)
+                return tok + pos
+
+        model = EmbeddingWithPositions(vocab_size=256, max_seq_len=64, dim=64)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        tokens = torch.randint(0, 256, (4, 16), device=self.DEVICE)
+        expected = model(tokens)
+        compiled_model = self._compile(model)
+        result = compiled_model(tokens)
+        self.assertEqual(result, expected)
+
+    def test_mlp_block_with_residual(self):
+        """Test MLP block with LayerNorm and residual connection.
+
+        This test verifies that the common transformer MLP block pattern works
+        correctly, combining LayerNorm, linear layers, GELU activation, and
+        residual connections. This exercises both the view/reshape fix for
+        residual broadcasting and the LayerNorm partial reduction handling.
+        """
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "MLP block with residual not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class MLPBlock(torch.nn.Module):
+            def __init__(self, dim, hidden_dim):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(dim)
+                self.w1 = torch.nn.Linear(dim, hidden_dim)
+                self.w2 = torch.nn.Linear(hidden_dim, dim)
+
+            def forward(self, x):
+                h = self.norm(x)
+                h = self.w2(torch.nn.functional.gelu(self.w1(h)))
+                return x + h
+
+        model = MLPBlock(dim=8, hidden_dim=32)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        x = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected = model(x)
+        compiled_model = self._compile(model)
+        result = compiled_model(x)
+        self.assertEqual(result, expected)
+
+    def test_torch_nn_LayerNorm(self):
+        """Test nn.LayerNorm with Pallas backend.
+
+        This test verifies that nn.LayerNorm works correctly with the Pallas backend,
+        including proper handling of partial reductions with symbolic dimensions.
+        """
+        if self.DEVICE == "cuda":
+            self.skipTest("LayerNorm not supported in Pallas GPU (Mosaic) backend")
+
+        # Warm up dynamo cache with other operations to reproduce the issue
+        def add_fn(a, b):
+            return a + b
+
+        compiled_add = self._compile(add_fn)
+        a = torch.randn(4, 4, device=self.DEVICE)
+        b = torch.randn(4, 4, device=self.DEVICE)
+        _ = compiled_add(a, b)
+
+        def mul_fn(a, b):
+            return a * b
+
+        compiled_mul = self._compile(mul_fn)
+        _ = compiled_mul(a, b)
+
+        def relu_fn(x):
+            return torch.relu(x)
+
+        compiled_relu = self._compile(relu_fn)
+        _ = compiled_relu(a)
+
+        def sum_fn(x):
+            return x.sum()
+
+        compiled_sum = self._compile(sum_fn)
+        _ = compiled_sum(a)
+
+        linear = torch.nn.Linear(8, 4)
+        linear.eval()
+        if self.DEVICE != "cpu":
+            linear = linear.to(self.DEVICE)
+        compiled_linear = self._compile(linear)
+        _ = compiled_linear(torch.randn(2, 8, device=self.DEVICE))
+
+        # Now test nn.LayerNorm module
+        ln = torch.nn.LayerNorm(8)
+        ln.eval()
+        if self.DEVICE != "cpu":
+            ln = ln.to(self.DEVICE)
+
+        x = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected = ln(x)
+        compiled_ln = self._compile(ln)
+        result = compiled_ln(x)
+        self.assertEqual(result, expected)
+
+    def test_repro_inline_causal_mask(self):
+        """Repro: Inline causal mask creation causes broadcast shape mismatch."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Inline causal mask not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        batch, heads, seq, dim = 2, 4, 8, 16
+        q = torch.randn(batch, heads, seq, dim, device=self.DEVICE)
+        k = torch.randn(batch, heads, seq, dim, device=self.DEVICE)
+        v = torch.randn(batch, heads, seq, dim, device=self.DEVICE)
+
+        def attention_with_inline_mask(q, k, v):
+            scale = dim ** -0.5
+            scores = torch.matmul(q, k.transpose(-2, -1)) * scale
+            seq_len = scores.size(-1)
+            mask = torch.triu(
+                torch.ones(seq_len, seq_len, device=scores.device), diagonal=1
+            ).bool()
+            scores = scores.masked_fill(mask, float("-inf"))
+            attn = torch.nn.functional.softmax(scores, dim=-1)
+            return torch.matmul(attn, v)
+
+        expected = attention_with_inline_mask(q, k, v)
+        compiled_fn = self._compile(attention_with_inline_mask)
+        result = compiled_fn(q, k, v)
+        self.assertEqual(result, expected)
+
+    def test_repro_embedding_layernorm_fusion(self):
+        """Repro: Embedding + LayerNorm fusion causes shape mismatch."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Embedding + LayerNorm fusion not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        emb = torch.nn.Embedding(256, 64)
+        ln = torch.nn.LayerNorm(64)
+        emb.eval()
+        ln.eval()
+        if self.DEVICE != "cpu":
+            emb = emb.to(self.DEVICE)
+            ln = ln.to(self.DEVICE)
+
+        tokens = torch.randint(0, 256, (4, 16), device=self.DEVICE)
+
+        def fn(tokens):
+            x = emb(tokens)
+            return ln(x)
+
+        expected = fn(tokens)
+        compiled_fn = self._compile(fn)
+        result = compiled_fn(tokens)
+        self.assertEqual(result, expected)
+
+    def test_repro_groupnorm(self):
+        """Repro: GroupNorm causes broadcast shape mismatch."""
+        if self.DEVICE == "cuda":
+            self.skipTest("GroupNorm not supported in Pallas GPU (Mosaic) backend")
+
+        gn = torch.nn.GroupNorm(num_groups=4, num_channels=64)
+        gn.eval()
+        if self.DEVICE != "cpu":
+            gn = gn.to(self.DEVICE)
+
+        x = torch.randn(4, 64, 16, device=self.DEVICE)
+        expected = gn(x)
+        compiled = self._compile(gn)
+        result = compiled(x)
+        self.assertEqual(result, expected)
+
+    def test_repro_conv_transpose(self):
+        """Repro: Conv1d with transpose produces incorrect results."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Conv1d transpose pattern not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        conv = torch.nn.Conv1d(64, 32, kernel_size=3, padding=1)
+        conv.eval()
+        if self.DEVICE != "cpu":
+            conv = conv.to(self.DEVICE)
+
+        x = torch.randn(4, 16, 64, device=self.DEVICE)
+
+        def fn(x):
+            return conv(x.transpose(1, 2)).transpose(1, 2)
+
+        expected = fn(x)
+        compiled_fn = self._compile(fn)
+        result = compiled_fn(x)
+        self.assertEqual(result, expected)
+
+    def test_repro_attention_softmax(self):
+        """Repro: Multi-head attention softmax reduction issue."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Attention softmax not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class SimpleAttention(torch.nn.Module):
+            def __init__(self, dim, n_heads):
+                super().__init__()
+                assert dim % n_heads == 0
+                self.n_heads = n_heads
+                self.head_dim = dim // n_heads
+
+                self.wq = torch.nn.Linear(dim, dim, bias=False)
+                self.wk = torch.nn.Linear(dim, dim, bias=False)
+                self.wv = torch.nn.Linear(dim, dim, bias=False)
+                self.wo = torch.nn.Linear(dim, dim, bias=False)
+
+            def forward(self, x):
+                bsz, seq_len, _ = x.size()
+                q = (
+                    self.wq(x)
+                    .view(bsz, seq_len, self.n_heads, self.head_dim)
+                    .transpose(1, 2)
+                )
+                k = (
+                    self.wk(x)
+                    .view(bsz, seq_len, self.n_heads, self.head_dim)
+                    .transpose(1, 2)
+                )
+                v = (
+                    self.wv(x)
+                    .view(bsz, seq_len, self.n_heads, self.head_dim)
+                    .transpose(1, 2)
+                )
+                scale = self.head_dim ** -0.5
+                scores = torch.matmul(q, k.transpose(-2, -1)) * scale
+                mask = torch.triu(
+                    torch.ones(seq_len, seq_len, device=x.device), diagonal=1
+                ).bool()
+                scores = scores.masked_fill(mask, float("-inf"))
+                attn = torch.nn.functional.softmax(scores, dim=-1)
+                output = torch.matmul(attn, v)
+                output = output.transpose(1, 2).contiguous().view(bsz, seq_len, -1)
+                return self.wo(output)
+
+        model = SimpleAttention(dim=64, n_heads=4)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        x = torch.randn(2, 8, 64, device=self.DEVICE)
+        expected = model(x)
+        compiled_model = self._compile(model)
+        result = compiled_model(x)
+        self.assertEqual(result, expected)
+
+    def test_repro_embedding_indexing(self):
+        """Repro: Embedding with torch.arange indexing issue."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Embedding indexing not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class EmbeddingWithPositions(torch.nn.Module):
+            def __init__(self, vocab_size, max_seq_len, dim):
+                super().__init__()
+                self.tok_emb = torch.nn.Embedding(vocab_size, dim)
+                self.pos_emb = torch.nn.Embedding(max_seq_len, dim)
+
+            def forward(self, tokens):
+                batch, seq_len = tokens.shape
+                tok = self.tok_emb(tokens)
+                pos_indices = torch.arange(seq_len, device=tokens.device)
+                pos = self.pos_emb(pos_indices)
+                return tok + pos
+
+        model = EmbeddingWithPositions(vocab_size=256, max_seq_len=64, dim=64)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        tokens = torch.randint(0, 256, (4, 16), device=self.DEVICE)
+        expected = model(tokens)
+        compiled_model = self._compile(model)
+        result = compiled_model(tokens)
+        self.assertEqual(result, expected)
+
+    def test_repro_layernorm(self):
+        """Repro: LayerNorm numerical precision issue after cache warmup.
+
+        Matches repro_tpu_test_cases_v2/repro_layernorm.py.
+        """
+        if self.DEVICE == "cuda":
+            self.skipTest("LayerNorm not supported in Pallas GPU (Mosaic) backend")
+
+        def run_test(fn, inputs):
+            expected = fn(*inputs)
+            compiled_fn = self._compile(fn)
+            result = compiled_fn(*inputs)
+            self.assertEqual(result, expected)
+
+        run_test(lambda a, b: a + b, (torch.randn(4, 4, device=self.DEVICE), torch.randn(4, 4, device=self.DEVICE)))
+        run_test(lambda a, b: a * b, (torch.randn(4, 4, device=self.DEVICE), torch.randn(4, 4, device=self.DEVICE)))
+        run_test(lambda x: torch.relu(x), (torch.randn(4, 4, device=self.DEVICE),))
+        run_test(lambda x: x.sum(), (torch.randn(4, 4, device=self.DEVICE),))
+
+        linear = torch.nn.Linear(8, 4)
+        linear.eval()
+        if self.DEVICE != "cpu":
+            linear = linear.to(self.DEVICE)
+        run_test(linear, (torch.randn(2, 8, device=self.DEVICE),))
+
+        ln = torch.nn.LayerNorm(8)
+        ln.eval()
+        if self.DEVICE != "cpu":
+            ln = ln.to(self.DEVICE)
+
+        x = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected = ln(x)
+        compiled_ln = self._compile(ln)
+        result = compiled_ln(x)
+        self.assertEqual(result, expected)
+
+        torch._dynamo.reset()
+        ln2 = torch.nn.LayerNorm(8)
+        ln2.eval()
+        if self.DEVICE != "cpu":
+            ln2 = ln2.to(self.DEVICE)
+
+        x2 = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected2 = ln2(x2)
+        compiled_ln2 = self._compile(ln2)
+        result2 = compiled_ln2(x2)
+        self.assertEqual(result2, expected2)
+
+    def test_repro_mlp_block_with_residual(self):
+        """Repro: MLP block with LayerNorm and residual connection issue."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "MLP block with residual not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class MLPBlock(torch.nn.Module):
+            def __init__(self, dim, hidden_dim):
+                super().__init__()
+                self.norm = torch.nn.LayerNorm(dim)
+                self.w1 = torch.nn.Linear(dim, hidden_dim)
+                self.w2 = torch.nn.Linear(hidden_dim, dim)
+
+            def forward(self, x):
+                h = self.norm(x)
+                h = self.w2(torch.nn.functional.gelu(self.w1(h)))
+                return x + h
+
+        model = MLPBlock(dim=8, hidden_dim=32)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        x = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected = model(x)
+        compiled_model = self._compile(model)
+        result = compiled_model(x)
+        self.assertEqual(result, expected)
+
+    def test_repro_residual_connection(self):
+        """Repro: Residual connection broadcasting issue."""
+        if self.DEVICE == "cuda":
+            self.skipTest(
+                "Residual connection not supported in Pallas GPU (Mosaic) backend"
+            )
+
+        class ResidualBlock(torch.nn.Module):
+            def __init__(self, dim):
+                super().__init__()
+                self.linear = torch.nn.Linear(dim, dim)
+
+            def forward(self, x):
+                return x + torch.nn.functional.relu(self.linear(x))
+
+        model = ResidualBlock(8)
+        model.eval()
+        if self.DEVICE != "cpu":
+            model = model.to(self.DEVICE)
+
+        x = torch.randn(2, 4, 8, device=self.DEVICE)
+        expected = model(x)
+        compiled_model = self._compile(model)
+        result = compiled_model(x)
+        self.assertEqual(result, expected)
+
     def test_sum_reduction(self):
         """Test sum reduction."""
 
