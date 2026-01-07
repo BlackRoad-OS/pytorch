@@ -42,6 +42,7 @@ from torch.testing._internal.common_utils import (
     TEST_CUDA_GRAPH,
 )
 from torch.testing._internal.inductor_utils import HAS_CUDA_AND_TRITON
+from torch.testing._internal.logging_utils import logs_to_string
 from torch.utils._mode_utils import no_dispatch
 from torch.utils._python_dispatch import TorchDispatchMode
 
@@ -2260,14 +2261,17 @@ if HAS_CUDA_AND_TRITON:
             # is currently broken.  But testing the float case here is also
             # awkward, because we plan to Tensor-ify the float compute, and as
             # a result we'd actually expect this to work with cuda graphs!
-            with capture_stderr() as captured_output:
+            log_stream, ctx = logs_to_string("torch._inductor.scheduler", "cudagraphs")
+            with ctx(), capture_stderr() as captured_output:
                 self.assertEqual(foo(torch.tensor(3, device="cuda")), 3)
                 self.assertEqual(foo(torch.tensor(6, device="cuda")), 6)
 
             if config.graph_partition:
-                FileCheck().check("cudagraph partition due to non gpu ops").run(
-                    captured_output[0]
-                )
+                FileCheck().check_count(
+                    "op0: reason=cpu ops, ir=DynamicScalar",
+                    1,
+                    exactly=True,
+                ).run(log_stream.getvalue())
             else:
                 FileCheck().check(
                     "skipping cudagraphs due to disabling cudagraphs due to incompatible op"
@@ -3048,14 +3052,17 @@ if HAS_CUDA_AND_TRITON:
 
             foo = torch.compile(foo, mode="reduce-overhead")
 
-            with capture_stderr() as captured_output:
+            log_stream, ctx = logs_to_string("torch._inductor.scheduler", "cudagraphs")
+            with ctx():
                 foo(torch.ones([10], device="cuda"), torch.ones([20]))
 
             FileCheck().check_count(
-                "cudagraph partition due to non gpu ops. Found from", 1, exactly=True
-            ).check_count("return (x + 1, y + 2)", 1, exactly=True).check(
-                "cudagraph partition into 2 partitions"
-            ).run(captured_output[0])
+                "Created 2 graph partitions: 1 cudagraphable, 1 non-cudagraphable",
+                1,
+                exactly=True,
+            ).check_count("op1: reason=cpu ops", 1, exactly=True).run(
+                log_stream.getvalue()
+            )
 
         @torch._inductor.config.patch("graph_partition", True)
         def test_graph_partition_cpu_scalar1(self):
