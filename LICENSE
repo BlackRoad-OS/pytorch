@@ -1,84 +1,54 @@
-From PyTorch:
+BlackRoad OS, Inc. - Proprietary License
 
-Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
-Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
-Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
-Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
-Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
-Copyright (c) 2011-2013 NYU                      (Clement Farabet)
-Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
-Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
-Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
-
-From Caffe2:
-
-Copyright (c) 2016-present, Facebook Inc. All rights reserved.
-
-All contributions by Facebook:
-Copyright (c) 2016 Facebook Inc.
-
-All contributions by Google:
-Copyright (c) 2015 Google Inc.
+Copyright (c) 2024-2026 BlackRoad OS, Inc.
 All rights reserved.
 
-All contributions by Yangqing Jia:
-Copyright (c) 2015 Yangqing Jia
-All rights reserved.
+CEO & Operator: Alexa Amundson
+Email: blackroad.systems@gmail.com
+Website: https://blackroad.io
 
-All contributions by Kakao Brain:
-Copyright 2019-2020 Kakao Brain
+IMPORTANT NOTICE:
+This software and associated documentation files (the "Software") are the
+exclusive property of BlackRoad OS, Inc.
 
-All contributions by Cruise LLC:
-Copyright (c) 2022 Cruise LLC.
-All rights reserved.
+LICENSE TERMS:
 
-All contributions by Tri Dao:
-Copyright (c) 2024 Tri Dao.
-All rights reserved.
+1. PROPRIETARY SOFTWARE
+   This Software is proprietary and confidential to BlackRoad OS, Inc.
 
-All contributions by Arm:
-Copyright (c) 2021, 2023-2025 Arm Limited and/or its affiliates
+2. NON-COMMERCIAL USE
+   This Software is provided for TESTING and DEVELOPMENT purposes only.
+   Commercial use, resale, or redistribution is STRICTLY PROHIBITED.
 
-All contributions from Caffe:
-Copyright(c) 2013, 2014, 2015, the respective contributors
-All rights reserved.
+3. PUBLIC VISIBILITY
+   While this repository may be publicly visible on platforms like GitHub,
+   this does NOT grant any rights to use, copy, modify, merge, publish,
+   distribute, sublicense, or sell the Software.
 
-All other contributions:
-Copyright(c) 2015, 2016 the respective contributors
-All rights reserved.
+4. NO COMMERCIAL RESALE
+   This Software is NOT for commercial resale under any circumstances.
 
-Caffe2 uses a copyright model similar to Caffe: each contributor holds
-copyright over their contributions to Caffe2. The project versioning records
-all such contribution and copyright details. If a contributor wants to further
-mark their specific copyright on a particular contribution, they should
-indicate their copyright solely in the commit message of the change when it is
-committed.
+5. TESTING PURPOSES
+   This Software is provided purely for testing, evaluation, and development
+   purposes by BlackRoad OS, Inc. and authorized partners.
 
-All rights reserved.
+6. PROTECTION
+   All intellectual property rights remain with BlackRoad OS, Inc.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
+7. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
+8. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL BLACKROAD OS, INC. BE LIABLE FOR ANY CLAIM OR DAMAGES.
 
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in the
-   documentation and/or other materials provided with the distribution.
+9. AUTHORIZED USE
+   Use authorized for:
+   - Internal testing by BlackRoad OS, Inc.
+   - Supporting 30,000 AI agents
+   - Supporting 30,000 human employees
+   - CEO/Operator oversight (Alexa Amundson)
 
-3. Neither the names of Facebook, Deepmind Technologies, NYU, NEC Laboratories America
-   and IDIAP Research Institute nor the names of its contributors may be
-   used to endorse or promote products derived from this software without
-   specific prior written permission.
+10. ENFORCEMENT
+    BlackRoad OS, Inc. reserves all rights to enforce this license.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.
+For permissions: blackroad.systems@gmail.com
